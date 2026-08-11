@@ -1,4 +1,5 @@
-"""المنسق العام: بناء الخلايا، توزيع المهام، الدوائر الكهربائية، التوسع الديناميكي.
+#!/usr/bin/env python3
+"""المنسق العام (Orchestrator): بناء الخلايا، توزيع المهام، الدوائر الكهربائية، التوسع الديناميكي.
 
 كل خلية = بروكسي + بصمة TLS + محرك سلوك بشري، وتعمل كمستهلك مستقل من طابور
 المهام — هكذا يُنفَّذ "الهجوم العنقودي" دون أن يصدر تدفق الطلبات من نقطة واحدة.
@@ -9,10 +10,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from .state_manager import AttackState, Finding
-from ..modules.evasion.behavior_synth import BehaviorEngine
-from ..modules.evasion.ja4_mutator import FingerprintBank, impersonate_for
-from ..modules.evasion.proxy_mesh import CellTransport, ProxyMesh
+# استيراد مطلق آمن متوافق مع جذر المشروع المهيأ في swarm.py
+from core.state_manager import AttackState, Finding
+from modules.evasion.behavior_synth import BehaviorEngine
+from modules.evasion.ja4_mutator import FingerprintBank, impersonate_for
+from modules.evasion.proxy_mesh import CellTransport, ProxyMesh
 
 
 @dataclass
@@ -78,11 +80,12 @@ class Orchestrator:
         profile = self.bank.mutated_profile()          # بصمة TLS مطفَّرة
         proxy = self.mesh.acquire()
         impersonate = impersonate_for(profile)
+        
         cell = Cell(
             id=f"cell-{idx:02d}",
             profile=profile,
             transport=CellTransport(
-                proxy_url=proxy["url"],
+                proxy_url=proxy["url"] if proxy else None,
                 impersonation=impersonate,
                 extra_headers=profile.get("headers", {}),
                 policy=self.policy,
@@ -101,10 +104,12 @@ class Orchestrator:
         s = self.policy["stealth"]
         now = time.monotonic()
         rate = s.get("max_rpm", 60) / 60.0
+        
         self._tokens[cell.id] = min(
             rate, self._tokens[cell.id] + (now - self._last_token_refill[cell.id]) * rate
         )
         self._last_token_refill[cell.id] = now
+        
         if self._tokens[cell.id] < 1.0:
             wait = (1.0 - self._tokens[cell.id]) / rate
             await asyncio.sleep(wait)
@@ -117,6 +122,7 @@ class Orchestrator:
         d0, d1 = s["delay_range"]
         delay = random.uniform(d0, d1) * (1 + random.uniform(-s["jitter"], s["jitter"]))
         await asyncio.sleep(max(0.05, delay))
+        
         if self.policy["behavior"].get("humanize", True) and random.random() < 0.18:
             t0, t1 = s["think_time_range"]
             await asyncio.sleep(random.uniform(t0, t1) * 0.35)
@@ -140,26 +146,34 @@ class Orchestrator:
             try:
                 await self._rate_limit(cell)
                 await self._humanize(cell)
+                
                 handler = self.module_handlers.get(task.kind)
                 findings: list[Finding] = []
                 if handler is not None:
                     findings = await handler(cell, task, AttackContext(
-                        policy=self.policy, mesh=self.mesh, vault=self.vault,
-                        state=self.state, logger=self.logger,
+                        policy=self.policy, 
+                        mesh=self.mesh, 
+                        vault=self.vault,
+                        state=self.state, 
+                        logger=self.logger,
                         dashboard_push=self.dashboard.push if self.dashboard else (lambda f: None),
                         stop_event=self._stop,
                     ))
+                    
                 for f in findings:
                     f.cell_id = cell.id
                     await self.state.add_finding(f)
                     cell.findings += 1
-                    self.dashboard.push(f) if self.dashboard else None
+                    if self.dashboard:
+                        self.dashboard.push(f)
                 cell.requests += 1
                 self._tasks_done += 1
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — شبكة: بروكسي ميت، مهلة، إلخ
                 cell.failures += 1
+                if self.logger:
+                    self.logger.error(f"Cell execution error: {exc}", cell_id=cell.id)
                 if cell.failures >= self.policy["stealth"]["circuit_breaker"]:
                     await self._heal(cell)
             finally:
@@ -184,21 +198,23 @@ class Orchestrator:
             await self._queue.put(Task(kind="crawl", url=t, depth=0))
 
         workers = [asyncio.create_task(self._worker(c)) for c in self._cells]
-        # مراقب صحة: يمد الخلايا الميتة
         watchdog = asyncio.create_task(self._watchdog())
+        
         await self._queue.join()
         self._stop.set()
+        
         for w in workers:
             w.cancel()
         watchdog.cancel()
+        
         await asyncio.gather(*workers, watchdog, return_exceptions=True)
 
     async def _watchdog(self) -> None:
+        """مراقب صحة: يمد الخلايا الميتة والراكدة بالدعم التلقائي والتدوير."""
         while not self._stop.is_set():
             await asyncio.sleep(15)
             for cell in self._cells:
-                if cell.status == "dead" or (cell.status == "idle"
-                                             and time.time() - cell.last_activity > 120):
+                if cell.status == "dead" or (cell.status == "idle" and time.time() - cell.last_activity > 120):
                     cell.status = "cooldown"
                     self.mesh.rotate(cell)
                     cell.failures = 0
