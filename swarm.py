@@ -14,9 +14,12 @@ import sys
 import urllib.parse
 from pathlib import Path
 
-# ضمان استيراد الحزم من جذر المشروع
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# ضمان استيراد الحزم من جذر المشروع وتجنب تضارب التسميات
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
+# الاستيراد باستخدام المسارات المطلقة الآمنة للمشروع
 from config import load_attack_policies, load_network_profiles
 from core import AttackState, CryptoVault, Orchestrator
 from core.orchestrator import Task
@@ -171,7 +174,7 @@ async def main() -> int:
         stop.set()
         await dash_task
 
-    # ---------------------------------------------------------- التقارير
+    # ---------------------------------------------------------- التقارير وإغلاق السطر المبتور
     findings_rows = []
     async with state._db.execute(
         "SELECT type, severity, url, param, payload_enc, evidence_enc, confidence, cell_id, ts FROM findings ORDER BY ts"
@@ -180,19 +183,20 @@ async def main() -> int:
             payload = vault.open(row[4]).decode(errors="replace") if (vault and row[4]) else ""
             evidence = vault.open(row[5]).decode(errors="replace") if (vault and row[5]) else ""
             findings_rows.append({
-                "type": row[0], "severity": row[1], "url": row[2], "param": row[3],
-                "payload": payload, "evidence": evidence, "confidence": row[6],
-                "cell_id": row[7], "ts": row[8],
+                "type": row[0], 
+                "severity": row[1], 
+                "url": row[2], 
+                "param": row[3], 
+                "payload": payload, 
+                "evidence": evidence, 
+                "confidence": row[6], 
+                "cell_id": row[7], 
+                "timestamp": row[8]
             })
-
-    enc_path = logger.export_json_encrypted(findings_rows)
-    md_path = logger.export_markdown(findings_rows, args.target[0])
-    print(f"\n[+] النتائج ({len(findings_rows)}):")
-    print(f"    تشفيرية: {enc_path}")
-    print(f"    Markdown: {md_path}")
-    await state.close()
+            
+    # تصدير التقرير النهائي بصيغة جيسون مشفر أو نصي حسب الإعدادات
+    await logger.export_findings(findings_rows)
     return 0
 
-
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    sys.exit(asyncio.run(main()))
