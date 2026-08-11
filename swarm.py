@@ -10,8 +10,8 @@
 import argparse
 import asyncio
 import json
-import os
 import sys
+import urllib.parse
 from pathlib import Path
 
 # ضمان استيراد الحزم من جذر المشروع
@@ -19,58 +19,76 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import load_attack_policies, load_network_profiles
 from core import AttackState, CryptoVault, Orchestrator
+from core.orchestrator import Task
 from core.state_manager import Finding
 from modules.crawler.endpoint_map import EndpointMapper
 from modules.crawler.js_analyzer import JSAnalyzer
 from modules.evasion.ja4_mutator import (
-    CaptureListener, TLSProfile, craft_client_hello, ja4_of_hello, verify_mutation,
+    CaptureListener, TLSProfile, verify_mutation,
 )
 from modules.evasion.proxy_mesh import ProxyMesh
 from modules.injectors import BOLALogic, SQLSwarm, XSSSwarm
 from ui import Dashboard, EncryptedLogger
 
+# المحركات القابلة للحقن فقط — استبعاد crawl حتى لا تُغذَّى الطابور بلا نهاية
+INJECTABLE = ("sql", "xss", "bola")
 
-# ============================================================== handlers (خلايا)
-async def handle_crawl(cell, task, ctx) -> list[Finding]:
-    """زحف + رسم خريطة نقاط + تحليل JS لكل نقطة، وتغذية طابور المهام بالمزيد."""
-    findings: list[Finding] = []
-    mapper = EndpointMapper(ctx.policy)
-    js = JSAnalyzer(ctx.policy)
 
-    records = await mapper.map_target(cell.transport, task.url)
-    js_checked = 0
-    for rec in records:
-        if ctx.stop_event.is_set():
-            break
-        if rec.url.lower().endswith(".js"):
-            if js_checked >= 5:          # حد أقصى لحزم JS لكل خلية
-                continue
-            js_checked += 1
-            report = await js.analyze_bundle(cell.transport, rec.url, depth=1)
-            for rep in report:
-                for kind, val in rep.secrets[:3]:
-                    findings.append(Finding(
-                        type="js_secret", severity="critical" if kind != "generic_api" else "medium",
-                        url=rep.url, param=kind, payload=val[:80],
-                        evidence=f"سر من نوع {kind} داخل حزمة JS",
-                        confidence=0.9,
+def make_crawl_handler(orch: Orchestrator):
+    """زحف + رسم خريطة نقاط + تحليل JS لكل نقطة، وتغذية طابور المهام بالمزيد.
+
+    صُنعت كدالة مصنع (factory) تغلق على مرجع المنسق (orch) لأن AttackContext
+    لا يحمل مرجعاً للمنسق ولا دالة submit — بديل صحيح وسليم
+    لـ ctx.orchestrator_submit / ctx.queue_put غير الموجودتين أصلاً.
+    """
+    async def handle_crawl(cell, task, ctx) -> list[Finding]:
+        findings: list[Finding] = []
+        mapper = EndpointMapper(ctx.policy)
+        js = JSAnalyzer(ctx.policy)
+
+        enabled = set(ctx.policy["modules"]["enabled"])
+        injectable = [m for m in INJECTABLE if m in enabled]
+
+        records = await mapper.map_target(cell.transport, task.url)
+        js_checked = 0
+        for rec in records:
+            if ctx.stop_event.is_set():
+                break
+            if rec.url.lower().endswith(".js"):
+                if js_checked >= 5:          # حد أقصى لحزم JS لكل خلية
+                    continue
+                js_checked += 1
+                report = await js.analyze_bundle(cell.transport, rec.url, depth=1)
+                for rep in report:
+                    for kind, val in rep.secrets[:3]:
+                        findings.append(Finding(
+                            type="js_secret",
+                            severity="critical" if kind != "generic_api" else "medium",
+                            url=rep.url, param=kind, payload=val[:80],
+                            evidence=f"سر من نوع {kind} داخل حزمة JS",
+                            confidence=0.9,
+                        ))
+                    # نقاط API المكتشفة داخل JS: إن حملت بارامترات نغذي محركات الحقن
+                    for ep in rep.endpoints[:10]:
+                        params = [
+                            k for k, _ in urllib.parse.parse_qsl(
+                                urllib.parse.urlparse(ep).query
+                            )
+                        ]
+                        if params:
+                            for mod in injectable:
+                                await orch.submit(Task(
+                                    kind=mod, url=ep, extra={"params": params},
+                                ))
+            # تغذية محركات الحقن من نقاط الزحف
+            if rec.params:
+                for mod in injectable:
+                    await orch.submit(Task(
+                        kind=mod, url=rec.url, extra={"params": rec.params},
                     ))
-                for ep in rep.endpoints[:10]:
-                    await ctx.orchestrator_submit or _noop()
-        # تغذية محركات الحقن
-        if rec.params:
-            for mod in ctx.policy["modules"]["enabled"]:
-                await ctx.queue_put(mod, rec.url, rec.params)
-    return findings
+        return findings
 
-
-async def _noop():
-    return None
-
-
-# واجهة تكييف: نمرر مراجع المنسق والطابور عبر AttackContext.extra (سجل في orchestrator)
-def _attach_orchestrator(ctx, orch: Orchestrator):
-    ctx.orchestrator_submit = orch.submit
+    return handle_crawl
 
 
 async def main() -> int:
@@ -137,14 +155,11 @@ async def main() -> int:
     xss = XSSSwarm(policy)
     bola = BOLALogic(policy)
     orch.register_modules({
-        "crawl": handle_crawl,
+        "crawl": make_crawl_handler(orch),
         "sql": lambda cell, task, ctx: sql(cell, task, ctx),
         "xss": lambda cell, task, ctx: xss(cell, task, ctx),
         "bola": lambda cell, task, ctx: bola(cell, task, ctx),
     })
-
-    # حقن مهام الحقن من الزاحف: ربط دالة إضافية عبر توسيع handle_crawl
-    # (تُستخدم ميدانياً عبر module queue — انظر Orchestrator.submit)
 
     # ---------------------------------------------------------- التشغيل
     logger.info("بدء SwarmAttack", targets=args.target, cells=policy["stealth"]["max_cells"])
@@ -162,8 +177,8 @@ async def main() -> int:
         "SELECT type, severity, url, param, payload_enc, evidence_enc, confidence, cell_id, ts FROM findings ORDER BY ts"
     ) as cur:
         async for row in cur:
-            payload = vault.open(row[4]).decode() if row[4] else ""
-            evidence = vault.open(row[5]).decode() if row[5] else ""
+            payload = vault.open(row[4]).decode(errors="replace") if (vault and row[4]) else ""
+            evidence = vault.open(row[5]).decode(errors="replace") if (vault and row[5]) else ""
             findings_rows.append({
                 "type": row[0], "severity": row[1], "url": row[2], "param": row[3],
                 "payload": payload, "evidence": evidence, "confidence": row[6],
