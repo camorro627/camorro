@@ -1,0 +1,48 @@
+stealth:
+  level: 5                  # 1..10 — كلما ارتفع: تأخيرات أطول، معدلات أقل
+  max_cells: 8              # عدد الخلايا (وكلاء الهجوم)
+  delay_range: [1.2, 4.5]   # ثوانٍ بين الطلبات لكل خلية
+  jitter: 0.35              # ضوضاء نسبية على كل تأخير
+  think_time_range: [2.0, 9.0]   # محاكاة قراءة بشرية قبل الطلبات الحرجة
+  max_rpm: 60               # أقصى طلب/دقيقة لكل خلية
+  circuit_breaker: 6        # عدد الإخفاقات قبل إعادة تدوير البروكسي
+  cooldown_after_rotate: [8, 20]  # ثوانٍ راحة بعد تغيير البروكسي
+
+behavior:
+  humanize: true
+  scroll_probability: 0.25
+  tab_switch_probability: 0.10
+
+scope:
+  allowed_domains: []       # فارغ = تقييد تلقائي بنطاق الهدف
+  max_depth: 3
+  max_urls: 500
+  exclude_extensions: [".png", ".jpg", ".jpeg", ".gif", ".webp", ".css", ".woff", ".woff2", ".svg", ".ico", ".mp4", ".zip", ".pdf"]
+
+modules:
+  enabled: [sql, xss, bola]
+  sql:
+    tests: [error, boolean, time]
+    time_delay: 5           # ثوانٍ لحقن التأخير الزمني
+    max_params_per_url: 20
+  xss:
+    dom_check: false        # يتطلب Playwright
+    polyglot: true
+  bola:
+    neighbors: 10           # عدد المعرفات المجاورة لاختبارها
+    batch_size: 25
+
+network:
+  proxy_file: null          # مسار ملف: سطر لكل بروكسي (http:// / socks5://)
+  health_timeout: 6
+  max_proxy_uses: 50        # إعادة تدوير البروكسي بعد N استخدام
+  dns_resolve: remote
+
+crypto:
+  key_source: env           # env | prompt | file
+  key_env_var: SWARM_KEY
+  state_encrypted: true
+
+reporting:
+  export_dir: ./reports
+  log_level: INFO
