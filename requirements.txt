@@ -1,17 +1,19 @@
-# ---- النقل والتخفي (TLS impersonation + mesh) ----
-curl_cffi>=0.7.2            # تقليد بصمة TLS الكاملة لمتصفحات حقيقية (JA3/JA4/H2)
-aiohttp>=3.9.5              # عميل غير متزامن لفحوص الصحة والزحف
-aiohttp-socks>=0.9.0        # بروكسي SOCKS4/5
-scapy>=2.5.0                # التقاط بصمات حقيقية من متصفح تحكم به (harvest)
+# ============================================================
+# SwarmAttack Framework — المتطلبات
+# المؤلف: Yassine (Camorro)
+# يتطلب: Python >= 3.10  (كود المشروع يستخدم أنماط X | Y)
+# التثبيت:  pip install -r requirements.txt
+# ============================================================
 
-# ---- التشفير وإدارة الحالة ----
-cryptography>=42.0.8        # AES-256-GCM / ChaCha20-Poly1305 / Argon2id
-aiosqlite>=0.20.0           # قاعدة حالة الهجوم غير المتزامنة
+# ---------- أساسية (ضرورية لتشغيل الأداة) ----------
+curl_cffi>=0.7.2            # تقليد بصمة TLS كاملة (JA3/JA4/H2) — النقل الفعلي عبر AsyncSession
+aiohttp>=3.9.5              # فحوص صحة البروكسيات غير المتزامنة (proxy_mesh.health_check_all)
+cryptography>=42.0.8        # AES-256-GCM / ChaCha20-Poly1305 / Argon2id (CryptoVault)
+aiosqlite>=0.20.0           # قاعدة حالة الهجوم (SQLite غير متزامن — state_manager)
+PyYAML>=6.0.1               # تحميل config/attack_policies.yaml
+rich>=13.7.1                # لوحة التحكم الحية (Dashboard — تُعطَّل تلقائياً إن غابت)
 
-# ---- الإعدادات والواجهة ----
-PyYAML>=6.0.1
-rich>=13.7.1                # لوحة التحكم الحية
-orjson>=3.10.0
-
-# ---- اختياري: فحص DOM XSS عبر متصفح حقيقي ----
-# playwright>=1.45.0
+# ---------- اختيارية (ميزات إضافية فقط) ----------
+# scapy>=2.5.0              # فقط لـ --capture-profile: التقاط بصمة حقيقية من متصفحك
+# playwright>=1.45.0        # فقط لفحص DOM XSS بمتصفح حقيقي (dom_check: true في السياسة)
+# aiohttp-socks>=0.9.0      # فقط إذا أضفت دعم SOCKS4/5 لفحص الصحة (الكود الحالي يستخدم aiohttp مباشرة)
