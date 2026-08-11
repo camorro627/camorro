@@ -1,0 +1,127 @@
+{
+  "profiles": [
+    {
+      "name": "chrome_124_win",
+      "family": "chrome",
+      "impersonate": "chrome124",
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "Windows",
+      "tls_version": "13",
+      "ciphers": [1301, 1302, 1303, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+      "extensions": [17513, 27, 23, 16, 13, 51, 45, 5, 0, 10, 18, 21, 15, 11, 65299],
+      "sigalgs": [2570, 1027, 6682, 2055, 10794, 2052, 14906, 1025, 1283, 2053, 2054, 1281, 1282, 1026, 1537, 1538, 1539],
+      "alpn": ["h2", "http/1.1"],
+      "grease": true,
+      "headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "sec-ch-ua": "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1"
+      },
+      "http2": {"header_table_size": 65536, "max_concurrent_streams": 1000, "initial_window_size": 6291456, "max_header_list_size": 262144}
+    },
+    {
+      "name": "chrome_120_macos",
+      "family": "chrome",
+      "impersonate": "chrome120",
+      "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "platform": "macOS",
+      "tls_version": "13",
+      "ciphers": [1301, 1302, 1303, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+      "extensions": [17513, 27, 23, 16, 13, 51, 45, 5, 0, 10, 18, 21, 15, 11],
+      "sigalgs": [2570, 1027, 6682, 2055, 10794, 2052, 14906, 1025, 1283, 2053, 2054, 1281, 1282, 1026, 1537, 1538, 1539],
+      "alpn": ["h2", "http/1.1"],
+      "grease": true,
+      "headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "sec-ch-ua": "\"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\", \"Not.A/Brand\";v=\"8\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1"
+      },
+      "http2": {"header_table_size": 65536, "max_concurrent_streams": 1000, "initial_window_size": 6291456, "max_header_list_size": 262144}
+    },
+    {
+      "name": "firefox_127_win",
+      "family": "firefox",
+      "impersonate": "firefox127",
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+      "platform": "Windows",
+      "tls_version": "13",
+      "ciphers": [4865, 4866, 4867, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53, 10, 255, 0],
+      "extensions": [0, 23, 65299, 10, 16, 11, 35, 17513, 51, 45, 27, 21, 5, 13, 18, 43],
+      "sigalgs": [1027, 2052, 1025, 1283, 2053, 1281, 2054, 1537, 1538, 1539],
+      "alpn": ["h2", "http/1.1"],
+      "grease": false,
+      "headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.5",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1"
+      },
+      "http2": {"header_table_size": 65536, "max_concurrent_streams": 200, "initial_window_size": 131072, "max_header_list_size": 262144}
+    },
+    {
+      "name": "safari_17_macos",
+      "family": "safari",
+      "impersonate": "safari17_0",
+      "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      "platform": "macOS",
+      "tls_version": "13",
+      "ciphers": [4865, 4866, 4867, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+      "extensions": [0, 23, 65299, 10, 11, 16, 17513, 51, 45, 27, 21, 43, 5, 18],
+      "sigalgs": [1027, 2052, 1025, 1283, 2053, 2054, 1537, 1539],
+      "alpn": ["h2", "http/1.1"],
+      "grease": false,
+      "headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1"
+      },
+      "http2": {"header_table_size": 65536, "max_concurrent_streams": 100, "initial_window_size": 131072, "max_header_list_size": 262144}
+    },
+    {
+      "name": "edge_124_win",
+      "family": "edge",
+      "impersonate": "edge124",
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+      "platform": "Windows",
+      "tls_version": "13",
+      "ciphers": [1301, 1302, 1303, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+      "extensions": [17513, 27, 23, 16, 13, 51, 45, 5, 0, 10, 18, 21, 15, 11, 65299],
+      "sigalgs": [2570, 1027, 6682, 2055, 10794, 2052, 14906, 1025, 1283, 2053, 2054, 1281, 1282, 1026, 1537, 1538, 1539],
+      "alpn": ["h2", "http/1.1"],
+      "grease": true,
+      "headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "sec-ch-ua": "\"Chromium\";v=\"124\", \"Microsoft Edge\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1"
+      },
+      "http2": {"header_table_size": 65536, "max_concurrent_streams": 1000, "initial_window_size": 6291456, "max_header_list_size": 262144}
+    }
+  ]
+}
