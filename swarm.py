@@ -19,6 +19,17 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+# توافقية Termux/Linux — مع بديل احتياطي إن غاب compat.py (تشغيل Linux عادي)
+try:
+    from compat import default_max_cells, detect_environment, platform_hint
+except ImportError:
+    def detect_environment() -> str:
+        return "linux"
+    def platform_hint() -> str:
+        return "Linux"
+    def default_max_cells(configured: int) -> int:
+        return min(configured, 24)
+
 # الاستيراد باستخدام المسارات المطلقة الآمنة للمشروع
 from config import load_attack_policies, load_network_profiles
 from core import AttackState, CryptoVault, Orchestrator
@@ -48,8 +59,7 @@ def make_crawl_handler(orch: Orchestrator):
         findings: list[Finding] = []
         mapper = EndpointMapper(ctx.policy)
         js = JSAnalyzer(ctx.policy)
-
-        enabled = set(ctx.policy["modules"]["enabled"])
+        enabled = ctx.policy["modules"].get("enabled", ["sql", "xss", "bola"])
         injectable = [m for m in INJECTABLE if m in enabled]
 
         records = await mapper.map_target(cell.transport, task.url)
@@ -121,10 +131,16 @@ async def main() -> int:
 
     # ---------------------------------------------------------- capture
     if args.capture_profile:
-        listener = CaptureListener(iface=args.capture_profile)
-        print(f"جارٍ الاستماع على {args.capture_profile}:443 لمدة 30 ثانية… (افتح متصفحك نحو أي HTTPS)")
-        captured = listener.capture_one(timeout=30)
-        print(json.dumps(captured, indent=2, ensure_ascii=False))
+        if detect_environment() == "termux":
+            print("[!] تحذير: الالتقاط على Termux يتطلب root — إن لم ينجح استخدم --self-test للتحقق")
+        try:
+            listener = CaptureListener(iface=args.capture_profile)
+            print(f"جارٍ الاستماع على {args.capture_profile}:443 لمدة 30 ثانية… (افتح متصفحك نحو أي HTTPS)")
+            captured = listener.capture_one(timeout=30)
+            print(json.dumps(captured, indent=2, ensure_ascii=False))
+        except RuntimeError as exc:
+            print(f"[!] {exc}")
+            return 2
         return 0
 
     # ---------------------------------------------------------- التهيئة
@@ -136,6 +152,10 @@ async def main() -> int:
         policy.update(yaml.safe_load(open(args.policy_file, encoding="utf-8")) or {})
     if args.cells:
         policy["stealth"]["max_cells"] = args.cells
+    else:
+        # ضبط تلقائي حسب البيئة: خلايا أقل على Termux لحماية الذاكرة
+        policy["stealth"]["max_cells"] = default_max_cells(policy["stealth"]["max_cells"])
+    print(f"[*] البيئة: {platform_hint()} — الخلايا: {policy['stealth']['max_cells']}")
     if args.tests:
         policy["modules"]["enabled"] = [t.strip() for t in args.tests.split(",") if t.strip()]
 
@@ -194,8 +214,11 @@ async def main() -> int:
                 "timestamp": row[8]
             })
             
-    # تصدير التقرير النهائي بصيغة جيسون مشفر أو نصي حسب الإعدادات
-    await logger.export_findings(findings_rows)
+    # تصدير التقرير النهائي: JSON مشفّر + Markdown
+    # (تصحيح: ui/logger.py لا تحتوي دالة export_findings — نستخدم الدالتين الموجودتين فعلاً)
+    enc_path = logger.export_json_encrypted(findings_rows)
+    md_path = logger.export_markdown(findings_rows, target=", ".join(args.target))
+    logger.info(f"التقارير: {enc_path} | {md_path}")
     return 0
 
 if __name__ == "__main__":
