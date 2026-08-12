@@ -2,8 +2,16 @@
 # SwarmAttack Framework — المتطلبات
 # المؤلف: Yassine (Camorro)
 # يتطلب: Python >= 3.10  (كود المشروع يستخدم أنماط X | Y)
-# التثبيت:  pip install -r requirements.txt
+# التثبيت:  bash install.sh   (يكتشف Termux/Linux تلقائياً)
+# أو يدوياً: pip install -r requirements.txt
 # ============================================================
+#
+# ملاحظة Termux (أندرويد): ثبّت حزم النظام أولاً ثم أعد المحاولة:
+#   pkg update -y && pkg upgrade -y
+#   pkg install -y python clang binutils pkg-config cmake ninja \
+#                  libcurl openssl rust libffi zlib libbrotli
+# الحزم أدناه كلها متوافقة مع Termux: تُبنى من المصدر تلقائياً
+# عندما لا تتوفر عجلة جاهزة لمعمارية aarch64/bionic.
 
 # ---------- أساسية (ضرورية لتشغيل الأداة) ----------
 curl_cffi>=0.7.2            # تقليد بصمة TLS كاملة (JA3/JA4/H2) — النقل الفعلي عبر AsyncSession
@@ -13,7 +21,7 @@ aiosqlite>=0.20.0           # قاعدة حالة الهجوم (SQLite غير م
 PyYAML>=6.0.1               # تحميل config/attack_policies.yaml
 rich>=13.7.1                # لوحة التحكم الحية (Dashboard — تُعطَّل تلقائياً إن غابت)
 
-# ---------- اختيارية (ميزات إضافية فقط) ----------
-# scapy>=2.5.0              # فقط لـ --capture-profile: التقاط بصمة حقيقية من متصفحك
-# playwright>=1.45.0        # فقط لفحص DOM XSS بمتصفح حقيقي (dom_check: true في السياسة)
+# ---------- اختيارية (ميزات إضافية فقط — لا تُثبَّت افتراضياً على Termux) ----------
+# scapy>=2.5.0              # فقط لـ --capture-profile (Termux: pkg install python-scapy + root)
+# playwright>=1.45.0        # فقط لفحص DOM XSS (لا يدعم Termux — الكود يتجاهله تلقائياً)
 # aiohttp-socks>=0.9.0      # فقط إذا أضفت دعم SOCKS4/5 لفحص الصحة (الكود الحالي يستخدم aiohttp مباشرة)
