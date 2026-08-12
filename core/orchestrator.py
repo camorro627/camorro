@@ -16,6 +16,15 @@ from modules.evasion.behavior_synth import BehaviorEngine
 from modules.evasion.ja4_mutator import FingerprintBank, impersonate_for
 from modules.evasion.proxy_mesh import CellTransport, ProxyMesh
 
+# توافقية Termux/Linux — مع بديل احتياطي إن استُورد الملف خارج سياق المشروع
+try:
+    from compat import default_max_cells, memory_safe_queue
+except ImportError:
+    def default_max_cells(configured: int) -> int:
+        return min(configured, 24)
+    def memory_safe_queue() -> int:
+        return 4096
+
 
 @dataclass
 class Cell:
@@ -65,7 +74,7 @@ class Orchestrator:
         self.dashboard = dashboard
         self.bank = FingerprintBank(profiles)
         self.module_handlers: dict[str, callable] = {}
-        self._queue: asyncio.Queue = asyncio.Queue(maxsize=4096)
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=memory_safe_queue())
         self._cells: list[Cell] = []
         self._stop = asyncio.Event()
         self._tasks_done = 0
@@ -188,7 +197,8 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ run
     async def run(self, targets: list[str]) -> None:
-        n = min(self.policy["stealth"]["max_cells"], 24)
+        # سقف آمن حسب البيئة: Termux (هاتف) ≤ 4 خلايا، Linux حتى 24
+        n = default_max_cells(self.policy["stealth"]["max_cells"])
         for i in range(n):
             cell = self._build_cell(i)
             self._cells.append(cell)
