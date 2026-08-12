@@ -38,30 +38,31 @@ def _h12(text: str) -> str:
 
 
 def ja4(version: str, sni: bool, ciphers: list[int], extensions: list[int],
-        sigalgs: list[int], alpn: list[str], proto: str = "t") -> str:
-    """حساب JA4 كاملاً حسب المواصفة."""
-    ciphers = [c for c in ciphers if c not in GREASE]
-    extensions = [e for e in extensions if e not in GREASE]
-    cc = f"{len(ciphers):02d}"
-    ec = f"{len(extensions):02d}"
-    if alpn:
-        first = alpn[0]
-        alpn_tag = (first[0] + first[-1]) if len(first) >= 2 else (first + "0")
-    else:
-        alpn_tag = "00"
-    sni_tag = "d" if sni else "i"
+        sigalgs: list[int], alpn: list[str]) -> str:
+    """حساب بصمة JA4 حسب مواصفة FoxIO — قيم GREASE مستثناة من العد والتجزئة."""
+    c = sorted(x for x in ciphers if x not in GREASE)
+    e = sorted(x for x in extensions if x not in GREASE)
+    s = sorted(x for x in sigalgs if x not in GREASE)
+    cc = min(len(c), 99)
+    ec = min(len(e), 99)
+    a0 = (alpn[0][:1] if alpn else "?")
+    a1 = (alpn[-1][:1] if alpn else "?")
+    c_hash = _h12("".join(f"{x:04x}" for x in c))
+    es_hash = _h12("".join(f"{x:04x}" for x in e) + "".join(f"{x:04x}" for x in s))
+    return (f"t{version}{'d' if sni else 'i'}{cc:02d}{ec:02d}{a0}{a1}"
+            f"_{c_hash}_{es_hash}")
 
-    b = _h12(",".join(f"{c:04x}" for c in sorted(ciphers)))
-    c_input = ",".join(f"{e:04x}" for e in sorted(extensions)) + "_" + ",".join(
-        f"{s:04x}" for s in sigalgs)                      # sigalgs بترتيب الإرسال
-    c = _h12(c_input)
-    return f"{proto}{version}{sni_tag}{cc}{ec}{alpn_tag}_{b}_{c}"
+
+def ext(t: int, data: bytes) -> bytes:
+    """ترميز امتداد TLS: (type:2 + length:2 + data)."""
+    return struct.pack(">HH", t, len(data)) + data
 
 
 @dataclass
 class TLSProfile:
     name: str
     family: str
+    impersonate: str
     ua: str
     platform: str
     tls_version: str = "13"
@@ -75,132 +76,78 @@ class TLSProfile:
 
     @classmethod
     def from_dict(cls, d: dict) -> "TLSProfile":
-        return cls(
-            name=d["name"], family=d["family"], ua=d["ua"], platform=d.get("platform", ""),
-            tls_version=d.get("tls_version", "13"), ciphers=list(d["ciphers"]),
-            extensions=list(d["extensions"]), sigalgs=list(d["sigalgs"]),
-            alpn=list(d.get("alpn", ["h2", "http/1.1"])), grease=d.get("grease", True),
-            headers=d.get("headers", {}), http2=d.get("http2", {}),
-        )
+        """بناء بروفايل من قاموس config/network_profiles.json."""
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def ja4(self) -> str:
-        return ja4(self.tls_version, True, self.ciphers, self.extensions,
-                   self.sigalgs, self.alpn)
+        """البصمة النظرية المتوقعة لهذا البروفايل."""
+        return ja4(self.tls_version, True, self.ciphers,
+                   self.extensions, self.sigalgs, self.alpn)
 
-    def clone(self) -> "TLSProfile":
-        return TLSProfile(
-            name=self.name, family=self.family, ua=self.ua, platform=self.platform,
-            tls_version=self.tls_version, ciphers=list(self.ciphers),
-            extensions=list(self.extensions), sigalgs=list(self.sigalgs),
-            alpn=list(self.alpn), grease=self.grease,
-            headers=dict(self.headers), http2=dict(self.http2),
-        )
-
-
-def impersonate_for(profile: dict | TLSProfile) -> str:
-    fam = profile.family if isinstance(profile, TLSProfile) else profile.get("family", "chrome")
-    return IMPERSONATE_MAP.get(fam, "chrome124")
+    def get(self, key: str, default=None):
+        """توافق مع أسلوب dict.get المستخدم في core/orchestrator.py."""
+        return getattr(self, key, default)
 
 
 class FingerprintBank:
-    """مكتبة بصمات + مولّد طفرات يبقي الناتج داخل فضاء المتصفحات الحقيقي."""
+    """مكتبة بصمات TLS: تحميل من config/network_profiles.json وتقديم بصمة مطفَّرة لكل خلية."""
 
-    def __init__(self, raw_profiles: list[dict], rng: random.Random | None = None):
-        self.rng = rng or random
-        self.base = [TLSProfile.from_dict(d) for d in raw_profiles]
+    def __init__(self, profiles: list[dict]):
+        self.profiles = [TLSProfile.from_dict(p) for p in profiles]
+        if not self.profiles:
+            raise ValueError("لا توجد بصمات TLS — تحقق من config/network_profiles.json")
 
-    def pick(self) -> TLSProfile:
-        return self.rng.choice(self.base).clone()
-
-    # ------------------------------------------------------------ mutation ops
-    def _mutate_ciphers(self, p: TLSProfile, intensity: float) -> None:
-        """قص/خلط/إعادة GREASE داخل حدود معقولة."""
-        if p.grease and self.rng.random() < 0.35:
-            p.ciphers = [self.rng.choice(sorted(GREASE))] + p.ciphers
-        k = max(1, int(len(p.ciphers) * intensity * 0.4))
-        if k > 1:
-            tail = p.ciphers[k:]
-            self.rng.shuffle(tail)
-            p.ciphers = p.ciphers[:k] + tail
-        # إسقاط تشفير قديم بشكل عشوائي (يبقي TLS1.3 دائماً)
-        if len(p.ciphers) > 12 and self.rng.random() < 0.5:
-            drop = [c for c in p.ciphers if c in (0x000a, 0x00ff, 0x5600)]
-            for c in drop:
-                p.ciphers.remove(c)
-
-    def _mutate_extensions(self, p: TLSProfile, intensity: float) -> None:
-        benign = [0x000b, 0x000f, 0x0012, 0x0015, 0x0016, 0x0017, 0x0022, 0x0023]
-        if self.rng.random() < 0.4 and p.extensions:
-            p.extensions.pop(self.rng.randrange(len(p.extensions)))
-        if self.rng.random() < 0.3:
-            extra = self.rng.choice(benign)
-            pos = self.rng.randrange(len(p.extensions) + 1)
-            p.extensions.insert(pos, extra)
-        if p.grease and self.rng.random() < 0.25:
-            p.extensions.insert(0, self.rng.choice(sorted(GREASE)))
-
-    def _mutate_sigalgs(self, p: TLSProfile, intensity: float) -> None:
-        if len(p.sigalgs) > 4 and self.rng.random() < 0.5:
-            self.rng.shuffle(p.sigalgs)
-        if self.rng.random() < 0.3:
-            p.sigalgs = p.sigalgs[:max(4, len(p.sigalgs) - 2)]
-
-    def _mutate_alpn(self, p: TLSProfile) -> None:
-        if len(p.alpn) > 1 and self.rng.random() < 0.2:
-            self.rng.shuffle(p.alpn)
-
-    # ------------------------------------------------------------ public API
-    def mutated_profile(self, intensity: float | None = None) -> TLSProfile:
-        p = self.pick()
-        intensity = intensity if intensity is not None else self.rng.uniform(0.2, 0.65)
-        self._mutate_ciphers(p, intensity)
-        self._mutate_extensions(p, intensity)
-        self._mutate_sigalgs(p, intensity)
-        self._mutate_alpn(p)
-        return p
-
-    def clone_ja4(self, target_ja4: str) -> TLSProfile:
-        """تقليد بصمة محددة: اختيار أقرب ملف تعريف ثم طفرة حتى المطابقة."""
-        for _ in range(300):
-            p = self.mutated_profile(intensity=0.15)
-            if p.ja4() == target_ja4:
-                return p
-        raise ValueError(f"تعذر استنساخ JA4={target_ja4} من المكتبة الحالية")
+    def mutated_profile(self) -> TLSProfile:
+        """اختيار بصمة عشوائية مع تطفير خفيف: خلط ترتيب السويتات والامتدادات."""
+        prof = random.choice(self.profiles)
+        return TLSProfile(
+            name=prof.name, family=prof.family, impersonate=prof.impersonate,
+            ua=prof.ua, platform=prof.platform, tls_version=prof.tls_version,
+            ciphers=random.sample(prof.ciphers, len(prof.ciphers)),
+            extensions=random.sample(prof.extensions, len(prof.extensions)),
+            sigalgs=random.sample(prof.sigalgs, len(prof.sigalgs)),
+            alpn=list(prof.alpn), grease=prof.grease,
+            headers=dict(prof.headers), http2=dict(prof.http2),
+        )
 
 
-# ============================================================== صياغة الحزم
-def craft_client_hello(profile: TLSProfile, server_name: str) -> bytes:
-    """بناء ClientHello يدوياً (TLS 1.3-capable) — للتحقق أو القنوات غير HTTP."""
-    ciphers = list(profile.ciphers)
+def impersonate_for(profile: TLSProfile) -> str:
+    """أقرب سلسلة impersonate تدعمها curl_cffi حسب عائلة المتصفح."""
+    return IMPERSONATE_MAP.get(profile.family, "chrome124")
+
+
+def craft_client_hello(profile: TLSProfile, server_name: str = "example.com") -> bytes:
+    """بناء ClientHello حقيقي المظهر من بروفايل TLS (للإثبات الذاتي والفحص الخارجي)."""
+    # SNI (0x0000): server_name_list = [type:1][len:2][name]
+    sni = b"".join(bytes([len(l)]) + l.encode() for l in server_name.split("."))
+    # ALPN (0x0010): list = [len:2][proto:len+data]*
+    alpn_list = b"".join(bytes([len(p)]) + p.encode() for p in profile.alpn)
+    alpn_ext = struct.pack(">H", len(alpn_list)) + alpn_list
+    # signature_algorithms (0x000d): vector = [len:2][sigalg:2]*
+    sigs = b"".join(struct.pack(">H", s) for s in profile.sigalgs)
+    sigs_ext = struct.pack(">H", len(sigs)) + sigs
+    # supported_versions (0x002b): vector = [len:1][version:2]
+    vers = b"\x03\x04" if profile.tls_version == "13" else b"\x03\x03"
+    vers_ext = bytes([len(vers)]) + vers
+
     exts = list(profile.extensions)
-    if profile.grease:
-        ciphers = [0x0a0a] + ciphers
-        exts = [0x0a0a] + exts
-
-    body = b"\x03\x03" + os.urandom(32) + b"\x00"
-    body += struct.pack(">H", len(ciphers)) + b"".join(struct.pack(">H", c) for c in ciphers)
-    body += b"\x01\x00"                                   # compression_methods: null
-
-    def ext(t: int, data: bytes) -> bytes:
-        return struct.pack(">HH", t, len(data)) + data
+    body = b""
+    body += b"\x03\x03"                        # legacy_version (سجل TLS 1.2)
+    body += os.urandom(32)                     # random
+    body += b"\x00"                            # session_id (فارغ)
+    cs = b"".join(struct.pack(">H", c) for c in profile.ciphers)
+    body += struct.pack(">H", len(cs)) + cs    # cipher_suites
+    body += b"\x01\x00"                        # compression_methods
 
     ep = b""
-    # SNI (0x0000)
-    sni = b"\x00" + struct.pack(">H", len(server_name)) + server_name.encode()
-    ep += ext(0x0000, b"\x00" + struct.pack(">H", len(sni)) + sni)
-    # supported_groups (0x0010)
-    gdata = b"".join(struct.pack(">H", g) for g in GROUPS)
-    ep += ext(0x0010, struct.pack(">H", len(gdata)) + gdata)
-    # signature_algorithms (0x000d)
-    sdata = b"".join(struct.pack(">H", s) for s in profile.sigalgs)
-    ep += ext(0x000d, struct.pack(">H", len(sdata)) + sdata)
-    # supported_versions (0x002b)
-    versions = [0x0304, 0x0303, 0x0302, 0x0301]
-    vdata = b"".join(struct.pack(">H", v) for v in versions)
-    ep += ext(0x002b, bytes([len(vdata)]) + vdata)
-    # ALPN (0x0010)
-    adata = b"".join(bytes([len(a)]) + a.encode() for a in profile.alpn)
-    ep += ext(0x0010, struct.pack(">H", len(adata)) + adata)
+    # SNI
+    ep += ext(0x0000, struct.pack(">H", len(sni) + 3) + b"\x00" + struct.pack(">H", len(sni)) + sni)
+    # ALPN
+    ep += ext(0x0010, alpn_ext)
+    # signature_algorithms
+    ep += ext(0x000d, sigs_ext)
+    # supported_versions
+    ep += ext(0x002b, vers_ext)
     # key_share (0x0033): GREASE + x25519 dummy
     ks = b"\x00\x1d" + struct.pack(">H", 32) + os.urandom(32)
     ep += ext(0x0033, struct.pack(">H", 2 + len(ks)) + struct.pack(">H", 0x0a0a) + b"\x00\x00" + ks)
@@ -292,7 +239,15 @@ class CaptureListener:
         self.iface, self.host, self.port = iface, host, port
 
     def capture_one(self, timeout: int = 30) -> dict:
-        from scapy.all import IP, TCP, sniff  # استيراد متأخر: لا يتطلب صلاحيات عند الاستيراد
+        try:
+            from scapy.all import IP, TCP, sniff  # استيراد متأخر: لا يتطلب صلاحيات عند الاستيراد
+        except ImportError as exc:
+            # تصحيح التوافقية (Termux/Linux): رسالة واضحة بدل انهيار صامت
+            raise RuntimeError(
+                "scapy غير مثبت — ميزة --capture-profile غير متاحة.\n"
+                "  Linux : pip install scapy\n"
+                "  Termux: pkg install python-scapy  (يلزم root/صلاحيات raw socket للالتقاط)"
+            ) from exc
 
         captured = {}
 
